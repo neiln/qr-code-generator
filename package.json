@@ -1,0 +1,22 @@
+{
+  "name": "qr-code-generator",
+  "version": "1.0.0",
+  "description": "A simple QR Code generator that takes a URL as input and generates a QR code image.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js",
+    "test": "jest",
+    "cli": "node src/cli.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "qrcode": "^1.4.4",
+    "sharp": "^0.34.3"
+  },
+  "devDependencies": {
+    "jest": "^27.0.6"
+  },
+  "author": "Your Name",
+  "license": "MIT"
+}
