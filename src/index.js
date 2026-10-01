@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const sharp = require('sharp');
 const { generateQRCode, generateQRCodeDataURL } = require('./generator/qr');
 const EnhancedQRGenerator = require('./generator/enhanced-qr');
 const { isValidURL, normalizeURL } = require('./utils/validators');
@@ -9,78 +10,74 @@ const app = express();
 const enhancedQRGenerator = new EnhancedQRGenerator();
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // Serve static files for web interface
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Generate enhanced QR code with frame and text
+// Generate enhanced QR code with validated presentation options.
 app.post('/api/generate-enhanced', async (req, res) => {
+    const body = req.body || {};
+    const fail = error => res.status(400).json({ error });
+    const contentType = body.contentType ?? 'url';
+    if (!['url', 'text', 'wifi', 'sms', 'email', 'phone', 'vcard'].includes(contentType)) {
+        return fail('Choose a supported content type.');
+    }
+    if (typeof body.url !== 'string' || !body.url.trim() || body.url.length > 2000) {
+        return fail('Enter content between 1 and 2,000 characters.');
+    }
+    const options = { contentType };
+    for (const [key, max] of Object.entries({ secondaryData: 2000, scanText: 100, scanTitle: 100 })) {
+        const value = body[key] === undefined ? '' : body[key];
+        if (typeof value !== 'string' || value.length > max || /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(value)) {
+            return fail(`${key} must be text with at most ${max} characters.`);
+        }
+        options[key] = value;
+    }
+    for (const [key, [fallback, min, max]] of Object.entries({
+        width: [300, 256, 2048], frameWidth: [10, 0, 50], padding: [20, 0, 64],
+        fontSize: [24, 12, 48], logoSize: [18, 10, 22]
+    })) {
+        const value = body[key] === undefined ? fallback : body[key];
+        if (!Number.isInteger(value) || value < min || value > max) return fail(`${key} must be a whole number from ${min} to ${max}.`);
+        options[key] = value;
+    }
+    for (const key of ['qrColor', 'backgroundColor', 'frameColor', 'textColor']) {
+        if (body[key] !== undefined) {
+            if (typeof body[key] !== 'string' || !/^#[0-9a-f]{6}$/i.test(body[key])) return fail(`${key} must be a six-digit hex color, such as #123456.`);
+            options[key] = body[key];
+        }
+    }
+    options.fontFamily = body.fontFamily ?? 'Arial';
+    if (!['Arial', 'Verdana', 'Georgia', 'monospace'].includes(options.fontFamily)) return fail('Choose a supported caption font.');
+    options.qrStyle = body.qrStyle ?? 'classic';
+    if (!['classic', 'ocean', 'forest', 'sunset'].includes(options.qrStyle)) return fail('Choose a supported color preset.');
+
+    let data = body.url;
+    if (contentType === 'url') {
+        data = normalizeURL(data.trim());
+        if (!isValidURL(data)) return fail('Enter a valid website URL, such as https://example.com.');
+    }
+    if (body.logoData) {
+        const match = typeof body.logoData === 'string' && /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(body.logoData);
+        if (!match) return fail('Choose a PNG, JPEG, or WebP logo.');
+        const logoBuffer = Buffer.from(match[2], 'base64');
+        if (!logoBuffer.length || logoBuffer.length > 512 * 1024) return fail('Logo image must be 512 KB or smaller.');
+        try {
+            // Decode here so a corrupt or excessively large image is a client error.
+            options.logoBuffer = await sharp(logoBuffer, { limitInputPixels: 16000000 }).rotate().png().toBuffer();
+        } catch {
+            return fail('Could not read this logo. Choose a valid image with at most 16 megapixels.');
+        }
+    }
     try {
-        const { 
-            url, 
-            scanText, 
-            scanTitle, 
-            frameColor, 
-            textColor, 
-            frameWidth, 
-            fontSize,
-            contentType = 'url',
-            secondaryData = ''
-        } = req.body;
-
-        if (!url) {
-            return res.status(400).json({ error: 'URL or primary data is required' });
-        }
-
-        // Validate URL only if content type is URL
-        if (contentType === 'url') {
-            const normalizedURL = normalizeURL(url);
-            if (!isValidURL(normalizedURL)) {
-                return res.status(400).json({ error: 'Invalid URL format' });
-            }
-        }
-
-        // Prepare options for enhanced generation
-        const options = {
-            width: 300,
-            frameColor: frameColor || '#000000',
-            textColor: textColor || '#000000',
-            frameWidth: frameWidth || 10,
-            fontSize: fontSize || 24,
-            contentType: contentType,
-            secondaryData: secondaryData || scanText || '',
-            scanText: scanText || '',
-            scanTitle: scanTitle || ''
-        };
-
-        // Combine scan text and title for display
-        let combinedText = '';
-        if (scanText && scanTitle) {
-            combinedText = `${scanText}\n${scanTitle}`;
-        } else if (scanText) {
-            combinedText = scanText;
-        } else if (scanTitle) {
-            combinedText = scanTitle;
-        }
-
-        if (combinedText) {
-            options.displayText = combinedText;
-        }
-
-        const imageBuffer = await enhancedQRGenerator.generateWithFrame(url, options);
-
-        res.set({
-            'Content-Type': 'image/png',
-            'Content-Length': imageBuffer.length,
-            'Cache-Control': 'no-cache'
-        });
-
+        const imageBuffer = await enhancedQRGenerator.generateWithFrame(data, options);
+        res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
         res.send(imageBuffer);
-
     } catch (error) {
+        if (/amount of data is too big/i.test(error.message)) return fail('This content is too long for a QR code. Shorten it and try again.');
         console.error('Error generating enhanced QR code:', error);
-        res.status(500).json({ error: 'Failed to generate QR code' });
+        res.status(500).json({ error: 'Could not generate the QR code. Please try again.' });
     }
 });
 
@@ -187,9 +184,9 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-const PORT = config.port || 3000;
+const PORT = config.PORT || 3000;
 
-app.listen(PORT, () => {
+if (require.main === module) app.listen(PORT, () => {
     console.log(`🚀 QR Code Generator server running on port ${PORT}`);
     console.log(`📱 Web interface: http://localhost:${PORT}`);
     console.log(`🔗 API docs: http://localhost:${PORT}/api`);

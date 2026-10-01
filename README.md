@@ -72,6 +72,48 @@ Then open your browser and go to `http://localhost:3000`. You'll see an enhanced
 - **Add custom text**: Text that appears under the QR code
 - **Download QR codes**: High-quality PNG images
 
+### Customization editor
+
+The web editor updates the PNG preview automatically as you type. On desktop,
+preview and export stay beside the controls; on mobile they appear between
+Content and Appearance.
+
+- Choose a preset or enter custom six-digit hex colors for the QR, background,
+  frame and text. Contrast guidance helps identify combinations that may scan poorly.
+- Turn the frame off, change its thickness, or add outer padding. The QR retains
+  a four-module clear margin independently of outer padding.
+- Add independent captions above and below the code; select a font and text size.
+  Captions never change the encoded content, and long captions shrink to fit.
+- Upload a PNG, JPEG or WebP logo (512 KB and 16 megapixels maximum), preview it,
+  adjust its size from 10–22%, or remove it. Logos use high error correction.
+- Export a 256, 512, 1024 or 2048-pixel QR with a custom filename. Frames, captions
+  and padding add to these dimensions; the preview reports the final PNG size.
+
+Downloads are disabled while the preview is updating or settings are invalid.
+Content drafts are kept separately for each type during the current session.
+Scan-test the final PNG before printing or sharing, especially with custom colors
+or a logo. Contrast guidance is not a guarantee of scanability.
+
+Additional enhanced API options:
+
+| Option | Accepted values | Default |
+| --- | --- | --- |
+| `qrColor` | Six-digit hex color; overrides `qrStyle` | Preset color |
+| `backgroundColor` | Six-digit hex color | `#FFFFFF` |
+| `width` | Integer from 256–2048 | 300 |
+| `padding` | Integer from 0–64 px | 20 |
+| `frameWidth` | Integer from 0–50 px; 0 removes frame | 10 |
+| `fontSize` | Integer from 12–48 px | 24 |
+| `fontFamily` | Arial, Verdana, Georgia, monospace | Arial |
+| `logoData` | Base64 PNG, JPEG or WebP data URL | None |
+| `logoSize` | Integer from 10–22 (% of QR width) | 18 |
+| `scanText` / `scanTitle` | Above / below caption, up to 100 characters each | Empty |
+
+The API returns JSON with an `error` message and status 400 for invalid options.
+`npm test` runs the existing Jest tests and native Node tests for PNG rendering
+and HTTP validation. Use Node.js 20 or newer. The native runner avoids the old
+Jest resolver's incompatibility with Sharp's platform-specific package exports.
+
 ### Command Line
 
 The enhanced CLI supports multiple content types:
